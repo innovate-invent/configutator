@@ -1,11 +1,10 @@
-import types
 import os
+import types
 import typing
 from typing import NewType
-from inspect import Signature
 
+from src.tator import normaliseArgs
 
-from tator import normaliseArgs
 
 def validate(f, args: dict):
     for param, param_type in f.__annotations__.items():
