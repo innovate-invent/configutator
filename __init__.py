@@ -2,8 +2,8 @@ import re, os, pickle
 from getopt import gnu_getopt
 from inspect import signature, getdoc, getfile, Parameter
 
-from tator import normaliseArgs
-from valitator import validate
+from .tator import normaliseArgs
+from .valitator import validate
 
 import ruamel.yaml
 from ruamel.yaml.comments import CommentedMap
