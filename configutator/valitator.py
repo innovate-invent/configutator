@@ -3,7 +3,7 @@ import types
 import typing
 from typing import NewType
 
-from src.tator import normaliseArgs
+from configutator.tator import normaliseArgs
 
 
 def validate(f, args: dict):

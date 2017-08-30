@@ -4,8 +4,7 @@ with open('README.rst') as readme:
     setup(
         name='configutator',
         version='1.0.0',
-        packages=find_packages('src'),
-        package_dir={'': 'src'},
+        packages=find_packages(),
         long_description=readme.read(),
         install_requires=['ruamel.yaml', 'jmespath', 'asciimatics'],
         url='https://github.com/innovate-invent/configutator',
