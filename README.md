@@ -1,2 +1,2 @@
 # configutator
-Maps yaml values and command line arguments to python function parameters.
+Maps yaml nodes and command line arguments to python function parameters.
