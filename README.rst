@@ -12,9 +12,10 @@ Or::
 
 To use:
 -------
-# Create a main function with all the parameters you need, annotated with any defaults.
-# Use the ``@ConfigMap`` and ``@ArgMap`` decorators to modify the default mappings if needed.
-# In the ``if __name__ == "__main__":`` block at the bottom of the file call the loadConfig() function.
+
+#. Create a main function with all the parameters you need, annotated with any defaults.
+#. Use the ``@ConfigMap`` and ``@ArgMap`` decorators to modify the default mappings if needed.
+#. In the ``if __name__ == "__main__":`` block at the bottom of the file call the loadConfig() function.
 
 Here is an example of the most basic use::
 
