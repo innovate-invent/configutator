@@ -1,7 +1,7 @@
 import io, typing
 
 _T = typing.TypeVar('_T')
-def ExtraType(name: str, tp: typing.Type[_T], factory: function) -> typing.Type[_T]:
+def ExtraType(name: str, tp: typing.Type[_T], factory) -> typing.Type[_T]:
     """
     Extends the functionality of typing.NewType to attach the validation function
     :param name: See typing.NewType(name)

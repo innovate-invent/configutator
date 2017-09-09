@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
+from .configutator.__version import __versionstr__
 
 with open('README.rst') as readme:
     setup(
         name='configutator',
-        version='1.0.0',
+        version=__versionstr__,
         packages=find_packages(),
         long_description=readme.read(),
         install_requires=['ruamel.yaml', 'jmespath', 'asciimatics'],
