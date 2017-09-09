@@ -40,7 +40,6 @@ YAMLLoader = ruamel.yaml.SafeLoader
 # Regex to extract description from function doc strings.
 funcDocRegex = re.compile(r'^[^:]+?(?=[\s]*:[\w]+)')
 
-# TODO: Allow for environment variable mappings.
 # TODO: Handle string annotations for function parameters
 
 def generate(functions: list) -> dict:
@@ -61,11 +60,12 @@ def generate(functions: list) -> dict:
         config[func.__name__] = params
     return config
 
-class TransformArg:
+class TransformBase:
     """
     Used to transform argument values to the intended type
     """
     __slots__ = '_xform'
+
     def __init__(self, xform=None):
         """
         Constructor.
@@ -93,9 +93,71 @@ class TransformArg:
         else:
             return value
 
+class TransformArg(TransformBase):
+    __slots__ = '_name'
+    def __init__(self, name: str or None = None, xform=None):
+        """
+        Constructor.
+
+        :param name: The parameter name to map to.
+        :param xform: See :meth:`TransformBase`.
+        """
+        self._name = name
+        super().__init__(xform)
+
+    def _apply(self, func, param: Parameter):
+        if not self._name:
+            self._name = param.name
+
+# -- Environment variable mapping --
+
+def EnvMap(*args, **kwargs):
+    """
+    Function decorator that specifies parameter mappings to environment variables.
+    The values of the arguments should either be a string with the environment variable name,
+    None to have configutator ignore the parameter when mapping, or a :class:`TransformArg` instance.
+    There is no default mapping for environment variables, any mapping must be explicitly set.
+    Gives the decorated function object an __envMap__ attribute.
+
+    :param args: Positional arguments that coincide with the arguments of the function to decorate.
+    :param kwargs: Keyword arguments that coincide with the arguments of the function to decorate. This will override anything conflicting with args.
+    :return: A function that will add the specified mappings to the function passed to its single argument.
+    """
+    def wrap(func):
+        sig = signature(func)
+        nArgs = normaliseArgs(func, args, kwargs)
+        if not hasattr(func, '__envMap__'):
+            func.__envMap__ = {}
+        for name, param in sig.parameters.items():
+            if name in nArgs:
+                func.__envMap__[name] = nArgs[name] or None
+
+        return func
+    return wrap
+
+def mapEnv(environ: dict, functions: list) -> dict:
+    """
+    Maps environment variables to the parameters of the passed functions.
+
+    :param environ: A dict of environment variables. Generally just pass :data:`os.environ` .
+    :param functions: A list of functions to map the command line argument values to.
+    :return: A dict keyed on the functions parameter names with the values found in environ.
+    """
+    args = {}
+    for f in functions:
+        sig = signature(f)
+        args[f] = {}
+        for name, param in sig.parameters.items():
+            if hasattr(f, '__envMap__') and name in f.__envMap__:
+                if isinstance(f.__envMap__[name], TransformArg):
+                    args[f] = f.__envMap__[name](environ[f.__envMap__[name]._name])
+                else:
+                    args[f] = environ[f.__envMap__[name]]
+    return args
+
 # -- Config file mapping --
 
-class TransformCfg(TransformArg):
+class TransformCfg(TransformBase):
     """
     Extends :class:`TransformArg` to handle JMESPath expressions for config mapping.
     """
@@ -105,7 +167,7 @@ class TransformCfg(TransformArg):
         Constructor.
 
         :param path: A valid JMESPath that returns the intended config value.
-        :param xform: See :meth:`TransformArg`.
+        :param xform: See :meth:`TransformBase`.
         """
         super().__init__(xform)
         self._expression = jmespath.compile(path) if path else None
@@ -159,6 +221,7 @@ def mapConfig(func, yaml_node, path = None) -> dict:
     args = {}
     sig = signature(func)
     for name, param in sig.parameters.items(): #type: str, Parameter
+        val = param.empty
         if hasattr(func, '__cfgMap__') and name in func.__cfgMap__:
             if isinstance(func.__cfgMap__[name], TransformCfg):
                 expression = func.__cfgMap__[name].expression
@@ -166,15 +229,14 @@ def mapConfig(func, yaml_node, path = None) -> dict:
                 expression = func.__cfgMap__[name]
             if expression:
                 val = expression.search(yaml_node)
-                if val is None:
-                    val = param.default
-                elif isinstance(func.__cfgMap__[name], TransformArg):
-                    val = func.__cfgMap__[name](val)
-                args[name] = val
+            if val is None:
+                val = param.default
+            elif isinstance(func.__cfgMap__[name], TransformArg):
+                val = func.__cfgMap__[name](val)
         else:
             val = yaml_node.get(name, param.default)
-            if val != param.empty:
-                args[name] = val
+        if val != param.empty:
+            args[name] = val
     return args
 
 def configUnmapped(func, param: str):
@@ -193,7 +255,7 @@ class PositionalArg(TransformArg):
     """
     Extends :class:`TransformArg` to allow mapping to positional command line arguments.
     """
-    __slots__ = '_index', '_name', '_desc', '_default'
+    __slots__ = '_index', '_desc', '_default'
     def __init__(self, index: int, name: str = None, desc: str = None, xform = None):
         """
         Constructor.
@@ -201,19 +263,25 @@ class PositionalArg(TransformArg):
         :param index: The 0-indexed position of the command line parameter.
         :param name: The name of the command line parameter to display in the help.
         :param desc: The description of the parameter to display in the help.
-        :param xform: See :meth:`TransformArg.__init__`
+        :param xform: See :meth:`TransformBase.__init__`
         """
         self._index = index
-        self._name = name # TODO use function param name if None
         self._desc = desc # TODO use function doc if None
         self._default = None
-        super().__init__(xform)
+        super().__init__(name, xform)
+
+    def _apply(self, func, param):
+        super()._apply(param)
+        if param.default is not param.empty:
+            self._default = param.default
+        if not self._desc:
+            self._desc = getParamDoc(func).get(param.name, '')
 
     @property
     def optional(self):
         """
         Determines if a default value was specified in the function definition.
-        Depends on @ArgMap to set the :attr:`default` attribute of this object.
+        Depends on @ArgMap to call :meth:`_apply` .
 
         :return: True if a default value was set, false otherwise.
         """
@@ -240,8 +308,8 @@ def ArgMap(*args, **kwargs):
             func.__argMap__['_func'] = nArgs['_func']
         for name, param in sig.parameters.items():
             if name in nArgs:
-                if isinstance(nArgs[name], PositionalArg) and param.default is not param.empty:
-                    nArgs[name].default = param.default
+                if isinstance(nArgs[name], TransformArg):
+                    nArgs[name]._apply(func, param)
                 func.__argMap__[name] = nArgs[name] or None
 
         return func
@@ -358,7 +426,7 @@ def argUnmapped(func, param: str) -> bool:
 
 # -- Loader --
 
-def loadConfig(argv: list, functions: tuple, title='', configParam='config', configExpression = None, batchExpression=None) -> dict:
+def loadConfig(argv: list, functions: tuple, title='', configParam='config', configExpression = None, batchExpression=None, tui=True) -> dict:
     """
     Generator returning each argument mapping provided by the command line and configuration script.
     If a YAML config file is passed to the config argument that contains multiple documents this function will yield
@@ -373,6 +441,7 @@ def loadConfig(argv: list, functions: tuple, title='', configParam='config', con
     :param configExpression: A JMESPath that is applied to the YAML document to change the current root node.
     :param batchExpression: A JMESPath that is applied to the current root YAML node. This should return a list of
         mappings where each item in the list is a root node to apply the function parameter mappings.
+    :param tui: Set to False to disable TUI.
     :return: Yields the mappings resolved from each of the list items in batchExpression.
         If batchExpression is None then this function only yields one mapping resolved from the current root node.
         Any command line argument mappings will override anything specified in the config.
@@ -472,7 +541,13 @@ def loadConfig(argv: list, functions: tuple, title='', configParam='config', con
                     batchExpression = jmespath.compile(v)
             config = val
 
-    args = mapArgs(optList, originalPositionals, functions)
+    # Load environment variables and command line arguments
+    args = mapEnv(os.environ, functions)
+    for f, m in mapArgs(optList, originalPositionals, functions).items():
+        if f not in args:
+            args[f] = {}
+        args[f].update(m)
+
     if config:
         cfgs = ruamel.yaml.load_all(open(config), YAMLLoader)
         for cfg in cfgs:
@@ -501,10 +576,13 @@ def loadConfig(argv: list, functions: tuple, title='', configParam='config', con
                 yield argMap
 
     elif len(argv):
-        # If parameters were passed, skip TUI
+        # If command line arguments were passed, skip TUI
         yield args
 
-    else:
-        # No parameters were passed, load TUI
+    elif tui:
+        # No command line arguments were passed, load TUI
         from .tui import loadTUI
-        yield loadTUI(functions, call_name, title)
+        loadTUI(functions, args, call_name, title)
+        if args:
+            yield args
+

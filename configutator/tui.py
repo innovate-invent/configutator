@@ -1,7 +1,7 @@
-import pickle
+import os, pickle
 from inspect import signature, Parameter
 
-from asciimatics.screen import Screen, StopApplication
+from asciimatics.screen import Screen, StopApplication, ResizeScreenError
 from asciimatics.scene import Scene
 import asciimatics.widgets as Widgets
 from asciimatics.event import KeyboardEvent
@@ -30,19 +30,18 @@ widgetMap = {
     'bool': boolParam
 }
 
-def _configUI(screen, functions: list, yaml_node, call_name, title=''):
+def _configUI(screen, functions: list, argMap: dict, call_name, title=''):
     Widgets.Frame.palette['edit_text'] = (Screen.COLOUR_BLACK, Screen.A_NORMAL, Screen.COLOUR_CYAN)
     Widgets.Frame.palette['section_header'] = (Screen.COLOUR_GREEN, Screen.A_UNDERLINE, Screen.COLOUR_BLUE)
 
     windowWidth = screen.width * 2 // 3
-    data = {}
     historyPath = os.path.expanduser('~/.configutator_history')
     if os.path.exists(historyPath):
         with open(historyPath, 'rb') as file:
             history = pickle.load(file)
             if call_name in history:
-                data = history[call_name]
-    window = Widgets.Frame(screen, screen.height * 2 // 3, windowWidth, title=title, data=data)
+                argMap.update(history[call_name])
+    window = Widgets.Frame(screen, screen.height * 2 // 3, windowWidth, title=title, data=argMap)
     scene = Scene([window])
 
     def saveHistory():
@@ -57,10 +56,12 @@ def _configUI(screen, functions: list, yaml_node, call_name, title=''):
     def _go():
         window.save()
         saveHistory()
+        argMap.update(window.data)
         raise StopApplication('')
     def _close():
         window.save()
         saveHistory()
+        argMap.clear()
         raise StopApplication('')
     def _save():
         pass
@@ -93,15 +94,19 @@ def _configUI(screen, functions: list, yaml_node, call_name, title=''):
     save_button = Widgets.Button('Save', _save)
     cancel_button = Widgets.Button('Cancel', _close)
     go_button = Widgets.Button('GO', _go)
-    toolbar.add_widget(load_button, 0)
-    toolbar.add_widget(save_button, 1)
+    #toolbar.add_widget(load_button, 0)
+    #toolbar.add_widget(save_button, 1)
     toolbar.add_widget(cancel_button, 2)
     toolbar.add_widget(go_button, 3)
 
     window.fix()
     screen.play([scene], unhandled_input=inputHandler)
 
-def loadTUI(functions, call_name, title):
-    argMap = {}
-    Screen.wrapper(_configUI, arguments=(functions, argMap, call_name, title))
-    return argMap
+def loadTUI(functions, argMap, call_name, title) -> None:
+    while True:
+        try:
+            Screen.wrapper(_configUI, arguments=(functions, argMap, call_name, title))
+        except StopApplication:
+            break
+        except ResizeScreenError:
+            continue
