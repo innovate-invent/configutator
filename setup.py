@@ -1,5 +1,5 @@
 from setuptools import setup, find_packages
-from .configutator.__version import __versionstr__
+from configutator.__version import __versionstr__
 
 with open('README.rst') as readme:
     setup(

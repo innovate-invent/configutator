@@ -572,7 +572,7 @@ def loadConfig(argv: list, functions: tuple, title='', configParam='config', con
                 for f in functions:
                     validate(f, argMap[f])
                 #TODO os.fork() to parallelize jobs
-                #TODO detect slurm_task_id and use api
+                #TODO detect slurm_task_id and use api, maybe pickle argmap
                 yield argMap
 
     elif len(argv):
