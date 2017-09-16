@@ -586,3 +586,4 @@ def loadConfig(argv: list, functions: tuple, title='', configParam='config', con
         if args:
             yield args
 
+    return

@@ -6,20 +6,23 @@ from asciimatics.scene import Scene
 import asciimatics.widgets as Widgets
 from asciimatics.event import KeyboardEvent
 
-from .util import getParamDoc
+from .util import getParamDoc, getTrueAnnotationType, strtobool
 
 # -- TUI Builder --
 
-def boolParam(param: Parameter, desc: str, layout: Widgets.Layout, maxWidth = None):
-    layout.add_widget(Widgets.CheckBox(desc, param.name, param.name))
+def boolParam(name: str, label: str, desc: str, layout: Widgets.Layout, maxWidth = None):
+    layout.add_widget(Widgets.CheckBox(desc, name, label))
 
-def textParam(param: Parameter, desc: str, layout: Widgets.Layout, maxWidth = None):
-    layout.add_widget(Widgets.Text(name=param.name, label=param.name))
+def textParam(name: str, label: str, desc: str, layout: Widgets.Layout, maxWidth = None):
+    layout.add_widget(Widgets.Text(name=name, label=label))
     if desc:
-        lastI = 0
-        for i in range(maxWidth or len(desc), len(desc), maxWidth or len(desc)):
-            layout.add_widget(Widgets.Label(desc[lastI:i]))
-            lastI = i
+        if len(desc) <= maxWidth:
+            layout.add_widget(Widgets.Label(desc))
+        else:
+            lastI = 0
+            for i in range(maxWidth or len(desc), len(desc), maxWidth or len(desc)):
+                layout.add_widget(Widgets.Label(desc[lastI:i]))
+                lastI = i
         layout.add_widget(Widgets.Divider(False))
 
 widgetMap = {
@@ -36,12 +39,18 @@ def _configUI(screen, functions: list, argMap: dict, call_name, title=''):
 
     windowWidth = screen.width * 2 // 3
     historyPath = os.path.expanduser('~/.configutator_history')
+    data = {}
     if os.path.exists(historyPath):
         with open(historyPath, 'rb') as file:
             history = pickle.load(file)
             if call_name in history:
-                argMap.update(history[call_name])
-    window = Widgets.Frame(screen, screen.height * 2 // 3, windowWidth, title=title, data=argMap)
+                data = history[call_name]
+
+    for f in argMap:
+        for name, value in argMap[f].items():
+            data[f.__name__ + ':' + name] = value
+
+    window = Widgets.Frame(screen, screen.height * 2 // 3, windowWidth, title=title, data=data)
     scene = Scene([window])
 
     def saveHistory():
@@ -56,17 +65,32 @@ def _configUI(screen, functions: list, argMap: dict, call_name, title=''):
     def _go():
         window.save()
         saveHistory()
-        argMap.update(window.data)
-        raise StopApplication('')
+        for name, value in window.data.items(): #type: str, object
+            func, param = name.split(':', 1)
+            for f in functions:
+                if f.__name__ == func:
+                    sig = signature(f)
+                    if issubclass(getTrueAnnotationType(sig.parameters[param].annotation), bool):
+                        value = strtobool(value or 'True')
+                    elif sig.parameters[param].annotation is not Parameter.empty:
+                        value = getTrueAnnotationType(sig.parameters[param].annotation)(value)
+                    argMap[f][param] = value
+                    break
+
+        raise StopApplication('Running program')
+
     def _close():
         window.save()
         saveHistory()
         argMap.clear()
-        raise StopApplication('')
+        raise StopApplication('Cancel program')
+
     def _save():
         pass
+
     def _load():
         pass
+
     def inputHandler(event):
         if isinstance(event, KeyboardEvent):
             c = event.key_code
@@ -85,10 +109,10 @@ def _configUI(screen, functions: list, argMap: dict, call_name, title=''):
             layout.add_widget(label)
         for name, param in sig.parameters.items(): #type: str, Parameter
             if param.annotation.__name__ in widgetMap:
-                widgetMap[param.annotation.__name__](param, doc.get(name, ''), layout, windowWidth)
+                widgetMap[param.annotation.__name__](f.__name__ + ':' + param.name, param.name, doc.get(name, ''), layout, windowWidth)
         layout.add_widget(Widgets.Divider(False))
 
-    toolbar = Widgets.Layout([1,1,1,1])
+    toolbar = Widgets.Layout([1,1])
     window.add_layout(toolbar)
     load_button = Widgets.Button('Load', _load)
     save_button = Widgets.Button('Save', _save)
@@ -96,17 +120,19 @@ def _configUI(screen, functions: list, argMap: dict, call_name, title=''):
     go_button = Widgets.Button('GO', _go)
     #toolbar.add_widget(load_button, 0)
     #toolbar.add_widget(save_button, 1)
-    toolbar.add_widget(cancel_button, 2)
-    toolbar.add_widget(go_button, 3)
+    toolbar.add_widget(cancel_button, 0)
+    toolbar.add_widget(go_button, 1)
 
     window.fix()
-    screen.play([scene], unhandled_input=inputHandler)
+    screen.play([scene], unhandled_input=inputHandler, stop_on_resize=True)
 
 def loadTUI(functions, argMap, call_name, title) -> None:
-    while True:
+    running = True
+    while running:
         try:
             Screen.wrapper(_configUI, arguments=(functions, argMap, call_name, title))
+            running = False
         except StopApplication:
-            break
+            running = False
         except ResizeScreenError:
             continue
